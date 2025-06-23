@@ -72,7 +72,7 @@ int getIndex(int x, int y) {
     }
   }
 
-void led_task() {
+void led_task(void *params) {
   const uint LED_PIN = 11;
   gpio_init(LED_PIN);
   gpio_set_dir(LED_PIN, GPIO_OUT);
@@ -84,7 +84,7 @@ void led_task() {
   }
 }
 
-void buttonB(){
+void buttonB(void *params){
   bool button_b_was_pressed = false;
   while(true){
     bool button_b_state = gpio_get(BUTTON_B); 
@@ -115,7 +115,7 @@ void buttonB(){
   }
 }
 
-void buttonA(){
+void buttonA(void *params){
   bool button_a_was_pressed = false;
   while(true){
     bool button_a_state = gpio_get(BUTTON_A); 
@@ -139,8 +139,8 @@ void buttonA(){
       vTaskDelay(pdMS_TO_TICKS(300)); 
       npClear();
     }
-    else if (button_b_state) {
-      button_b_was_pressed = false;
+    else if (button_a_state) {
+      button_a_was_pressed = false;
     }
     vTaskDelay(pdMS_TO_TICKS(10));
   }
