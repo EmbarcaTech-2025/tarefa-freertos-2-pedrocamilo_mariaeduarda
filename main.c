@@ -2,14 +2,23 @@
 #include "task.h"
 #include <stdio.h>
 #include "pico/stdlib.h"
-
+#include "hardware/pio.h"
+#include "ws2818b.pio.h"
 #include "hardware/i2c.h"
+#include "timers.h"
+#include "FreeRTOSConfig.h"
+#include "pico/time.h" 
+#include <stdlib.h>
 
 #define BUTTON_A 5
 #define BUTTON_B 6
 
 #define LED_COUNT 25
 #define LED_PIN 7
+
+uint8_t obstacles[5][5] = {0};
+
+int player_pos = 2;
 
 struct pixel_t {
   uint8_t G, R, B; 
@@ -63,55 +72,25 @@ void npWrite() {
 }
 
 int getIndex(int x, int y) {
-    // Se a linha for par (0, 2, 4), percorremos da esquerda para a direita.
-    // Se a linha for ímpar (1, 3), percorremos da direita para a esquerda.
     if (y % 2 == 0) {
-        return 24-(y * 5 + x); // Linha par (esquerda para direita).
+        return 24-(y * 5 + x); 
     } else {
-        return 24-(y * 5 + (4 - x)); // Linha ímpar (direita para esquerda).
+        return 24-(y * 5 + (4 - x)); 
     }
   }
-
-void led_task(void *params) {
-  const uint LED_PIN = 11;
-  gpio_init(LED_PIN);
-  gpio_set_dir(LED_PIN, GPIO_OUT);
-  while (true) {
-    gpio_put(LED_PIN, 1);
-    vTaskDelay(100);
-    gpio_put(LED_PIN, 0);
-    vTaskDelay(100);
-  }
-}
 
 void buttonB(void *params){
   bool button_b_was_pressed = false;
   while(true){
     bool button_b_state = gpio_get(BUTTON_B); 
     if (!button_b_state && !button_b_was_pressed) { 
-      int matriz2[5][5][3] = {
-                    {{0, 0, 0}, {0, 0, 0}, {4, 1, 0}, {4, 1, 0}, {0, 0, 0}},
-        {{0, 0, 0}, {8, 0, 0}, {4, 1, 0}, {8, 0, 0}, {0, 0, 0}},
-        {{8, 0, 0}, {8, 0, 0}, {8, 0, 0}, {8, 0, 0}, {8, 0, 0}},
-        {{8, 0, 0}, {8, 0, 0}, {8, 0, 0}, {8, 0, 0}, {8, 0, 0}},
-        {{0, 0, 0}, {8, 0, 0}, {8, 0, 0}, {8, 0, 0}, {0, 0, 0}}
-                };
-            
-      for(int linha = 0; linha < 5; linha++){
-        for(int coluna = 0; coluna < 5; coluna++){
-          int posicao = getIndex(linha, coluna);
-          npSetLED(posicao, matriz2[coluna][linha][0], matriz2[coluna][linha][1], matriz2[coluna][linha][2]);
-        }
-      }
-            
-      npWrite();
-      vTaskDelay(pdMS_TO_TICKS(300)); 
-      npClear();
+      if (player_pos < 4) player_pos++;
+      button_b_was_pressed = true;
     }
     else if (button_b_state) {
       button_b_was_pressed = false;
     }
-    vTaskDelay(pdMS_TO_TICKS(10));
+    vTaskDelay(100);
   }
 }
 
@@ -120,30 +99,81 @@ void buttonA(void *params){
   while(true){
     bool button_a_state = gpio_get(BUTTON_A); 
     if (!button_a_state && !button_a_was_pressed) { 
-      int matriz2[5][5][3] = {
-                  {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}},
-          {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}},
-          {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}},
-          {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}},
-          {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}}
-              };
-            
-      for(int linha = 0; linha < 5; linha++){
-        for(int coluna = 0; coluna < 5; coluna++){
-          int posicao = getIndex(linha, coluna);
-          npSetLED(posicao, matriz2[coluna][linha][0], matriz2[coluna][linha][1], matriz2[coluna][linha][2]);
-        }
-      }
-            
-      npWrite();
-      vTaskDelay(pdMS_TO_TICKS(300)); 
-      npClear();
+      if (player_pos > 0) player_pos--;
+      button_a_was_pressed = true;
     }
     else if (button_a_state) {
       button_a_was_pressed = false;
     }
-    vTaskDelay(pdMS_TO_TICKS(10));
+    vTaskDelay(100); 
   }
+}
+
+void render_task(void *params) {
+  while(true){
+    npClear();
+    for (int y = 0; y < 5; y++) {
+      int count = 0;
+      for (int x = 0; x < 5; x++) {
+        if (obstacles[y][x]) {
+          if(count < 2){
+            int pos = getIndex(y, x);
+            npSetLED(pos, 8, 0, 0);  
+            count ++;
+          }
+        }
+      }
+    }
+    if (obstacles[player_pos][4]) {
+      for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < LED_COUNT; j++) {
+          npSetLED(j, 8, 0, 0);
+        }
+        npWrite();
+        vTaskDelay(200);
+
+        npClear();
+        npWrite();
+        vTaskDelay(200);
+      }
+
+      for (int y = 0; y < 5; y++)
+        for (int x = 0; x < 5; x++)
+          obstacles[y][x] = 0;
+      player_pos = 2;
+    }
+    int pos = getIndex(player_pos, 4);
+    npSetLED(pos,0,8,0);
+    npWrite();
+    vTaskDelay(30);
+  }
+}
+
+void obstacle_task(void *params) {
+    while (true) {
+        for (int y = 4; y > 0; y--) {
+            for (int x = 0; x < 5; x++) {
+                obstacles[x][y] = obstacles[x][y - 1];
+            }
+        }
+
+        for (int x = 0; x < 5; x++) {
+            obstacles[x][0] = 0;
+        }
+
+        int num_obstacles = rand() % 3; 
+
+        for (int i = 0; i < num_obstacles; i++) {
+            int pos;
+            do {
+                pos = rand() % 5; 
+            } while (obstacles[pos][0] == 1); 
+            
+            obstacles[pos][0] = 1;
+        }
+
+        vTaskDelay(600);
+    }
 }
 
 int main() {
@@ -157,10 +187,12 @@ int main() {
   gpio_init(BUTTON_B);
   gpio_set_dir(BUTTON_B, GPIO_IN);
   gpio_pull_up(BUTTON_B);
+  srand(to_us_since_boot(get_absolute_time()));
 
-  xTaskCreate(led_task, "LED_Task", 256, NULL, 1, NULL);
   xTaskCreate(buttonA, "buttonA", 256, NULL, 1, NULL);
   xTaskCreate(buttonB, "buttonB", 256, NULL, 1, NULL);
+  xTaskCreate(render_task, "Render", 512, NULL, 1, NULL);
+  xTaskCreate(obstacle_task, "Obstacles", 512, NULL, 1, NULL);
   vTaskStartScheduler();
 
   while(1){};

@@ -16,12 +16,7 @@ set(PICO_BOARD pico CACHE STRING "Board type")
 
 cmake_minimum_required(VERSION 3.12)
 
-# Set any variables required for importing libraries
-if (DEFINED ENV{FREERTOS_PATH})
-  SET(FREERTOS_PATH $ENV{FREERTOS_PATH})
-else()
-  SET(FREERTOS_PATH ${CMAKE_CURRENT_LIST_DIR}/FreeRTOS-Kernel)
-endif()
+SET(FREERTOS_PATH ${CMAKE_CURRENT_LIST_DIR}/FreeRTOS-Kernel)
 
 message("FreeRTOS Kernel located in ${FREERTOS_PATH}")
 
@@ -39,6 +34,9 @@ add_executable(embarcatech-tarefa-freertos-2
     main.c
 )
 
+pico_generate_pio_header(embarcatech-tarefa-freertos-2 ${CMAKE_CURRENT_LIST_DIR}/ws2818b.pio)
+
+
 target_include_directories(embarcatech-tarefa-freertos-2 PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
     ${CMAKE_CURRENT_LIST_DIR}/include
@@ -48,6 +46,7 @@ target_link_libraries(embarcatech-tarefa-freertos-2
     pico_stdlib 
     FreeRTOS-Kernel-Heap4 
     hardware_i2c
+    hardware_pio
     )
 
 pico_add_extra_outputs(embarcatech-tarefa-freertos-2)
