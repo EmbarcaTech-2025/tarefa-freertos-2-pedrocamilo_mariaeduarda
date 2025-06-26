@@ -11,6 +11,10 @@
 #include <stdlib.h>
 #include "hardware/pwm.h"
 #include "hardware/clocks.h"
+#include "include/ssd1306.h"
+#include "pico/binary_info.h"
+#include <ctype.h>
+#include <string.h>
 
 //botões
 #define BUTTON_A 5
@@ -32,11 +36,37 @@
 #define NOTE_B4  494
 #define NOTE_C5  523
 #define NOTE_G3  196 
+#define NOTE_A3  175
+#define NUM_NOTAS_BACKGROUND 31
+
+const int melodia_fundo[] = {
+    NOTE_A3, NOTE_C4, NOTE_D4,
+    NOTE_E4, NOTE_D4, NOTE_C4, NOTE_D4, NOTE_C4, NOTE_A3,
+    NOTE_A3, NOTE_C4, NOTE_D4,
+    NOTE_E4, NOTE_D4, NOTE_C4, NOTE_E4, NOTE_G4, NOTE_F4,
+    NOTE_A3, NOTE_C4, NOTE_D4,
+    NOTE_E4, NOTE_D4, NOTE_C4, NOTE_D4, NOTE_C4, NOTE_A3,
+    NOTE_F4, NOTE_E4, NOTE_D4, NOTE_C4, NOTE_A3
+};
+const int duracao_fundo[] = {
+    220, 180, 450,
+    220, 220, 220, 220, 220, 500,
+    220, 180, 450,
+    220, 220, 220, 300, 300, 500,
+    220, 180, 450,
+    220, 220, 220, 220, 220, 500,
+    300, 300, 300, 300, 700
+};
+
+const uint I2C_SDA = 14;
+const uint I2C_SCL = 15;
 
 uint8_t obstacles[5][5] = {0};
 
 int player_pos = 2;
 int perdeu = 0;
+int dificuldade = 700;
+int nivel = 0;
 
 struct pixel_t {
   uint8_t G, R, B; 
@@ -120,11 +150,11 @@ void pwm_set_freq_duty(uint slice_num, uint chan, uint32_t freq, int duty) {
     pwm_set_chan_level(slice_num, chan, wrap * duty / 100);
 }
 
-void beep(int freq, int duration_ms) {
+void beep(int freq, int duration_ms, int volume) {
     uint slice_num = pwm_gpio_to_slice_num(BUZZER_PIN);
     uint chan = pwm_gpio_to_channel(BUZZER_PIN);
 
-    pwm_set_freq_duty(slice_num, chan, freq, 50);
+    pwm_set_freq_duty(slice_num, chan, freq, volume);
     pwm_set_enabled(slice_num, true);
 
     vTaskDelay(duration_ms);
@@ -134,10 +164,10 @@ void beep(int freq, int duration_ms) {
 }
 
 void play_som_de_derrota() {
-    beep(NOTE_C5, 150);
-    beep(NOTE_G4, 150);
-    beep(NOTE_E4, 150);
-    beep(NOTE_C4, 300); 
+    beep(NOTE_C5, 150, 50);
+    beep(NOTE_G4, 150, 50);
+    beep(NOTE_E4, 150, 50);
+    beep(NOTE_C4, 300, 50); 
 }
 
 void buttonB(void *params){
@@ -186,6 +216,33 @@ void render_task(void *params) {
       }
     }
     if (obstacles[player_pos][4]) {
+      perdeu = 1;
+      if(dificuldade > 100){
+        dificuldade = dificuldade - 100;
+        nivel++;
+      }
+      else{
+        dificuldade = 700;
+        nivel = 0;
+      }
+      struct render_area frame_area = {
+        start_column : 0,
+        end_column : ssd1306_width - 1,
+        start_page : 0,
+        end_page : ssd1306_n_pages - 1
+      };
+
+      calculate_render_area_buffer_length(&frame_area);
+
+      uint8_t ssd[ssd1306_buffer_length];
+      memset(ssd, 0, ssd1306_buffer_length);
+      render_on_display(ssd, &frame_area);
+      char linha_de_texto[20];
+      memset(ssd, 0, ssd1306_buffer_length);
+      ssd1306_draw_string(ssd, 5, 0, "  DIFICULDADE");
+      sprintf(linha_de_texto, "       %d", nivel);
+      ssd1306_draw_string(ssd, 5, 16, linha_de_texto);
+      render_on_display(ssd, &frame_area);
       play_som_de_derrota();
       for (int i = 0; i < 3; i++) {
         for (int j = 0; j < LED_COUNT; j++) {
@@ -202,6 +259,7 @@ void render_task(void *params) {
         for (int x = 0; x < 5; x++)
           obstacles[y][x] = 0;
       player_pos = 2;
+      perdeu = 0;
     }
     int pos = getIndex(player_pos, 4);
     npSetLED(pos,0,8,0);
@@ -233,7 +291,30 @@ void obstacle_task(void *params) {
             obstacles[pos][0] = 1;
         }
 
-        vTaskDelay(600);
+        vTaskDelay(dificuldade);
+    }
+}
+
+void musica_de_fundo_task(void *params) {
+
+    vTaskDelay(1000); 
+
+    while (true) {
+
+        while (perdeu != 0) {
+            vTaskDelay(100); 
+        }
+
+        for (int i = 0; i < NUM_NOTAS_BACKGROUND; i++) {
+            
+            if (perdeu != 0) {
+                break; 
+            }
+            beep(melodia_fundo[i], duracao_fundo[i], 20);
+            vTaskDelay(100);
+        }
+        
+        vTaskDelay(dificuldade);
     }
 }
 
@@ -250,11 +331,38 @@ int main() {
   gpio_pull_up(BUTTON_B);
   srand(to_us_since_boot(get_absolute_time()));
   pwm_init_buzzer(BUZZER_PIN);
+  i2c_init(i2c1, ssd1306_i2c_clock * 1000);
+  gpio_set_function(I2C_SDA, GPIO_FUNC_I2C);
+  gpio_set_function(I2C_SCL, GPIO_FUNC_I2C);
+  gpio_pull_up(I2C_SDA);
+  gpio_pull_up(I2C_SCL);
+  ssd1306_init();
+
+  struct render_area frame_area = {
+      start_column : 0,
+      end_column : ssd1306_width - 1,
+      start_page : 0,
+      end_page : ssd1306_n_pages - 1
+  };
+
+  calculate_render_area_buffer_length(&frame_area);
+
+  uint8_t ssd[ssd1306_buffer_length];
+  memset(ssd, 0, ssd1306_buffer_length);
+  render_on_display(ssd, &frame_area);
+
+  char linha_de_texto[20];
+  memset(ssd, 0, ssd1306_buffer_length);
+  ssd1306_draw_string(ssd, 5, 0, "  DIFICULDADE");
+  sprintf(linha_de_texto, "       %d", nivel);
+  ssd1306_draw_string(ssd, 5, 16, linha_de_texto);
+  render_on_display(ssd, &frame_area);
 
   xTaskCreate(buttonA, "buttonA", 256, NULL, 1, NULL);
   xTaskCreate(buttonB, "buttonB", 256, NULL, 1, NULL);
   xTaskCreate(render_task, "Render", 512, NULL, 1, NULL);
   xTaskCreate(obstacle_task, "Obstacles", 512, NULL, 1, NULL);
+  xTaskCreate(musica_de_fundo_task, "BackgroundMusic", 512, NULL, 1, NULL);
   vTaskStartScheduler();
 
   while(1){};

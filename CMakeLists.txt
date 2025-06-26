@@ -32,6 +32,7 @@ pico_sdk_init()
 
 add_executable(embarcatech-tarefa-freertos-2
     main.c
+    include/ssd1306_i2c.c
 )
 
 pico_generate_pio_header(embarcatech-tarefa-freertos-2 ${CMAKE_CURRENT_LIST_DIR}/ws2818b.pio)
