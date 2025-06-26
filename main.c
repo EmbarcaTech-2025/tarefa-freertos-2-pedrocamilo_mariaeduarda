@@ -9,16 +9,34 @@
 #include "FreeRTOSConfig.h"
 #include "pico/time.h" 
 #include <stdlib.h>
+#include "hardware/pwm.h"
+#include "hardware/clocks.h"
 
+//botões
 #define BUTTON_A 5
 #define BUTTON_B 6
 
+//matriz de led
 #define LED_COUNT 25
 #define LED_PIN 7
+
+//buzzer
+#define BUZZER_PIN 21
+#define BUZZER_FREQUENCY 100
+#define NOTE_C4  262
+#define NOTE_D4  294
+#define NOTE_E4  330
+#define NOTE_F4  349
+#define NOTE_G4  392
+#define NOTE_A4  440
+#define NOTE_B4  494
+#define NOTE_C5  523
+#define NOTE_G3  196 
 
 uint8_t obstacles[5][5] = {0};
 
 int player_pos = 2;
+int perdeu = 0;
 
 struct pixel_t {
   uint8_t G, R, B; 
@@ -72,12 +90,48 @@ void npWrite() {
 }
 
 int getIndex(int x, int y) {
-    if (y % 2 == 0) {
-        return 24-(y * 5 + x); 
-    } else {
-        return 24-(y * 5 + (4 - x)); 
-    }
+  if (y % 2 == 0) {
+      return 24-(y * 5 + x); 
+  } else {
+      return 24-(y * 5 + (4 - x)); 
   }
+}
+
+void pwm_init_buzzer(uint pin) {
+    gpio_set_function(pin, GPIO_FUNC_PWM);
+
+    uint slice_num = pwm_gpio_to_slice_num(pin);
+
+    pwm_config config = pwm_get_default_config();
+    pwm_config_set_clkdiv(&config, clock_get_hz(clk_sys) / (BUZZER_FREQUENCY * 4096)); 
+    pwm_init(slice_num, &config, true);
+
+    pwm_set_gpio_level(pin, 0);
+}
+
+void pwm_set_freq_duty(uint slice_num, uint chan, uint32_t freq, int duty) {
+    uint32_t clock = 125000000;
+    uint32_t divider16 = clock / freq / 4096 + (clock % (freq * 4096) != 0);
+    if (divider16 / 16 == 0)
+        divider16 = 16;
+    uint32_t wrap = clock * 16 / divider16 / freq - 1;
+    pwm_set_clkdiv_int_frac(slice_num, divider16 / 16, divider16 & 0xF);
+    pwm_set_wrap(slice_num, wrap);
+    pwm_set_chan_level(slice_num, chan, wrap * duty / 100);
+}
+
+void beep(int freq, int duration_ms) {
+    uint slice_num = pwm_gpio_to_slice_num(BUZZER_PIN);
+    uint chan = pwm_gpio_to_channel(BUZZER_PIN);
+
+    pwm_set_freq_duty(slice_num, chan, freq, 50);
+    pwm_set_enabled(slice_num, true);
+
+    vTaskDelay(duration_ms);
+
+    // Desliga o som
+    pwm_set_enabled(slice_num, false);
+}
 
 void buttonB(void *params){
   bool button_b_was_pressed = false;
@@ -130,13 +184,13 @@ void render_task(void *params) {
           npSetLED(j, 8, 0, 0);
         }
         npWrite();
-        vTaskDelay(200);
+        beep(BUZZER_PIN, 500);
+        vTaskDelay(400);
 
         npClear();
         npWrite();
-        vTaskDelay(200);
+        vTaskDelay(100);
       }
-
       for (int y = 0; y < 5; y++)
         for (int x = 0; x < 5; x++)
           obstacles[y][x] = 0;
@@ -188,6 +242,7 @@ int main() {
   gpio_set_dir(BUTTON_B, GPIO_IN);
   gpio_pull_up(BUTTON_B);
   srand(to_us_since_boot(get_absolute_time()));
+  pwm_init_buzzer(BUZZER_PIN);
 
   xTaskCreate(buttonA, "buttonA", 256, NULL, 1, NULL);
   xTaskCreate(buttonB, "buttonB", 256, NULL, 1, NULL);

@@ -47,6 +47,7 @@ target_link_libraries(embarcatech-tarefa-freertos-2
     FreeRTOS-Kernel-Heap4 
     hardware_i2c
     hardware_pio
+    hardware_pwm
     )
 
 pico_add_extra_outputs(embarcatech-tarefa-freertos-2)
