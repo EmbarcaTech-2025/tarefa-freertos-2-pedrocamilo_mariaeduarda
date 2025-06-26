@@ -133,6 +133,13 @@ void beep(int freq, int duration_ms) {
     pwm_set_enabled(slice_num, false);
 }
 
+void play_som_de_derrota() {
+    beep(NOTE_C5, 150);
+    beep(NOTE_G4, 150);
+    beep(NOTE_E4, 150);
+    beep(NOTE_C4, 300); 
+}
+
 void buttonB(void *params){
   bool button_b_was_pressed = false;
   while(true){
@@ -179,12 +186,12 @@ void render_task(void *params) {
       }
     }
     if (obstacles[player_pos][4]) {
+      play_som_de_derrota();
       for (int i = 0; i < 3; i++) {
         for (int j = 0; j < LED_COUNT; j++) {
           npSetLED(j, 8, 0, 0);
         }
         npWrite();
-        beep(BUZZER_PIN, 500);
         vTaskDelay(400);
 
         npClear();
